@@ -190,10 +190,6 @@ func (schema *Schema) ParseField(fieldStruct reflect.StructField) *Field {
 		field.Comment = val
 	}
 
-	if _, ok := field.TagSettings["IGNOREMIGRATION"]; ok {
-		field.IgnoreMigration = true
-	}
-
 	// default value is function or null or blank (primary keys)
 	field.DefaultValue = strings.TrimSpace(field.DefaultValue)
 	skipParseDefaultValue := strings.Contains(field.DefaultValue, "(") &&
