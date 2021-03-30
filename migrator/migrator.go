@@ -290,10 +290,15 @@ func (m Migrator) RenameTable(oldName, newName interface{}) error {
 func (m Migrator) AddColumn(value interface{}, field string) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
 		if field := stmt.Schema.LookUpField(field); field != nil {
-			return m.DB.Exec(
-				"ALTER TABLE ? ADD ? ?",
-				m.CurrentTable(stmt), clause.Column{Name: field.DBName}, m.DB.Migrator().FullDataTypeOf(field),
-			).Error
+			column := clause.Column{Name: field.DBName}
+			fieldType := m.DB.Migrator().FullDataTypeOf(field)
+			if !field.IgnoreMigration {
+				return m.DB.Exec(
+					"ALTER TABLE ? ADD ? ?",
+					m.CurrentTable(stmt), column, fieldType,
+				).Error
+			}
+			return nil
 		}
 		return fmt.Errorf("failed to look up field with name: %s", field)
 	})
