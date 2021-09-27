@@ -292,6 +292,38 @@ func TestFindInBatches(t *testing.T) {
 	}
 }
 
+func TestFindInBatchesWithError(t *testing.T) {
+	if name := DB.Dialector.Name(); name == "sqlserver" {
+		t.Skip("skip sqlserver due to it will raise data race for invalid sql")
+	}
+
+	var users = []User{
+		*GetUser("find_in_batches_with_error", Config{}),
+		*GetUser("find_in_batches_with_error", Config{}),
+		*GetUser("find_in_batches_with_error", Config{}),
+		*GetUser("find_in_batches_with_error", Config{}),
+		*GetUser("find_in_batches_with_error", Config{}),
+		*GetUser("find_in_batches_with_error", Config{}),
+	}
+
+	DB.Create(&users)
+
+	var (
+		results    []User
+		totalBatch int
+	)
+
+	if result := DB.Table("wrong_table").Where("name = ?", users[0].Name).FindInBatches(&results, 2, func(tx *gorm.DB, batch int) error {
+		totalBatch += batch
+		return nil
+	}); result.Error == nil || result.RowsAffected > 0 {
+		t.Fatal("expected errors to have occurred, but nothing happened")
+	}
+	if totalBatch != 0 {
+		t.Fatalf("incorrect total batch, expected: %v, got: %v", 0, totalBatch)
+	}
+}
+
 func TestFillSmallerStruct(t *testing.T) {
 	user := User{Name: "SmallerUser", Age: 100}
 	DB.Save(&user)
@@ -404,6 +436,11 @@ func TestNot(t *testing.T) {
 		t.Fatalf("Build NOT condition, but got %v", result.Statement.SQL.String())
 	}
 
+	result = dryDB.Not(map[string]interface{}{"name": []string{}}).Find(&User{})
+	if !regexp.MustCompile("SELECT \\* FROM .*users.* WHERE .*name.* IS NOT NULL").MatchString(result.Statement.SQL.String()) {
+		t.Fatalf("Build NOT condition, but got %v", result.Statement.SQL.String())
+	}
+	
 	result = dryDB.Not(map[string]interface{}{"name": []string{"jinzhu", "jinzhu 2"}}).Find(&User{})
 	if !regexp.MustCompile("SELECT \\* FROM .*users.* WHERE .*name.* NOT IN \\(.+,.+\\)").MatchString(result.Statement.SQL.String()) {
 		t.Fatalf("Build NOT condition, but got %v", result.Statement.SQL.String())
@@ -628,6 +665,12 @@ func TestSelect(t *testing.T) {
 		t.Fatalf("Build Select with func, but got %v", r.Statement.SQL.String())
 	}
 
+	// named arguments
+	r = dryDB.Table("users").Select("COALESCE(age, @default)", sql.Named("default", 42)).Find(&User{})
+	if !regexp.MustCompile(`SELECT COALESCE\(age,.*\) FROM .*users.*`).MatchString(r.Statement.SQL.String()) {
+		t.Fatalf("Build Select with func, but got %v", r.Statement.SQL.String())
+	}
+
 	if _, err := DB.Table("users").Select("COALESCE(age,?)", "42").Rows(); err != nil {
 		t.Fatalf("Failed, got error: %v", err)
 	}
@@ -804,7 +847,17 @@ func TestSearchWithEmptyChain(t *testing.T) {
 func TestOrder(t *testing.T) {
 	dryDB := DB.Session(&gorm.Session{DryRun: true})
 
-	result := dryDB.Order("age desc, name").Find(&User{})
+	result := dryDB.Order("").Find(&User{})
+	if !regexp.MustCompile("SELECT \\* FROM .*users.* IS NULL$").MatchString(result.Statement.SQL.String()) {
+		t.Fatalf("Build Order condition, but got %v", result.Statement.SQL.String())
+	}
+
+	result = dryDB.Order(nil).Find(&User{})
+	if !regexp.MustCompile("SELECT \\* FROM .*users.* IS NULL$").MatchString(result.Statement.SQL.String()) {
+		t.Fatalf("Build Order condition, but got %v", result.Statement.SQL.String())
+	}
+
+	result = dryDB.Order("age desc, name").Find(&User{})
 	if !regexp.MustCompile("SELECT \\* FROM .*users.* ORDER BY age desc, name").MatchString(result.Statement.SQL.String()) {
 		t.Fatalf("Build Order condition, but got %v", result.Statement.SQL.String())
 	}
@@ -991,7 +1044,16 @@ func TestSubQueryWithRaw(t *testing.T) {
 	DB.Create(&users)
 
 	var count int64
-	err := DB.Raw("select count(*) from (?) tmp",
+	err := DB.Raw("select count(*) from (?) tmp where 1 = ? AND name IN (?)", DB.Raw("select name from users where age >= ? and name in (?)", 10, []string{"subquery_raw_1", "subquery_raw_2", "subquery_raw_3"}), 1, DB.Raw("select name from users where age >= ? and name in (?)", 20, []string{"subquery_raw_1", "subquery_raw_2", "subquery_raw_3"})).Scan(&count).Error
+	if err != nil {
+		t.Errorf("Expected to get no errors, but got %v", err)
+	}
+
+	if count != 2 {
+		t.Errorf("Row count must be 2, instead got %d", count)
+	}
+
+	err = DB.Raw("select count(*) from (?) tmp",
 		DB.Table("users").
 			Select("name").
 			Where("age >= ? and name in (?)", 20, []string{"subquery_raw_1", "subquery_raw_3"}).

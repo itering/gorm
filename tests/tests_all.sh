@@ -9,8 +9,9 @@ fi
 if [ -d tests ]
 then
   cd tests
-  cp go.mod go.mod.bak
-  sed '/^[[:blank:]]*gorm.io\/driver/d' go.mod.bak > go.mod
+  go get -u ./...
+  go mod download
+  go mod tidy
   cd ..
 fi
 
@@ -39,9 +40,3 @@ for dialect in "${dialects[@]}" ; do
     fi
   fi
 done
-
-if [ -d tests ]
-then
-  cd tests
-  mv go.mod.bak go.mod
-fi

@@ -15,7 +15,7 @@ func TestMigrate(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(allModels), func(i, j int) { allModels[i], allModels[j] = allModels[j], allModels[i] })
 
-	DB.Migrator().DropTable("user_speaks", "user_friends")
+	DB.Migrator().DropTable("user_speaks", "user_friends", "ccc")
 
 	if err := DB.Migrator().DropTable(allModels...); err != nil {
 		t.Fatalf("Failed to drop table, got error %v", err)
@@ -31,6 +31,14 @@ func TestMigrate(t *testing.T) {
 		}
 	}
 
+	DB.Scopes(func(db *gorm.DB) *gorm.DB {
+		return db.Table("ccc")
+	}).Migrator().CreateTable(&Company{})
+
+	if !DB.Migrator().HasTable("ccc") {
+		t.Errorf("failed to create table ccc")
+	}
+
 	for _, indexes := range [][2]string{
 		{"user_speaks", "fk_user_speaks_user"},
 		{"user_speaks", "fk_user_speaks_language"},
@@ -38,7 +46,6 @@ func TestMigrate(t *testing.T) {
 		{"user_friends", "fk_user_friends_friends"},
 		{"accounts", "fk_users_account"},
 		{"users", "fk_users_team"},
-		{"users", "fk_users_manager"},
 		{"users", "fk_users_company"},
 	} {
 		if !DB.Migrator().HasConstraint(indexes[0], indexes[1]) {
@@ -135,17 +142,36 @@ func TestSmartMigrateColumn(t *testing.T) {
 
 }
 
-func TestMigrateWithComment(t *testing.T) {
-	type UserWithComment struct {
+func TestMigrateWithColumnComment(t *testing.T) {
+	type UserWithColumnComment struct {
 		gorm.Model
-		Name string `gorm:"size:111;index:,comment:这是一个index;comment:this is a 字段"`
+		Name string `gorm:"size:111;comment:this is a 字段"`
 	}
 
-	if err := DB.Migrator().DropTable(&UserWithComment{}); err != nil {
+	if err := DB.Migrator().DropTable(&UserWithColumnComment{}); err != nil {
 		t.Fatalf("Failed to drop table, got error %v", err)
 	}
 
-	if err := DB.AutoMigrate(&UserWithComment{}); err != nil {
+	if err := DB.AutoMigrate(&UserWithColumnComment{}); err != nil {
+		t.Fatalf("Failed to auto migrate, but got error %v", err)
+	}
+}
+
+func TestMigrateWithIndexComment(t *testing.T) {
+	if DB.Dialector.Name() != "mysql" {
+		t.Skip()
+	}
+
+	type UserWithIndexComment struct {
+		gorm.Model
+		Name string `gorm:"size:111;index:,comment:这是一个index"`
+	}
+
+	if err := DB.Migrator().DropTable(&UserWithIndexComment{}); err != nil {
+		t.Fatalf("Failed to drop table, got error %v", err)
+	}
+
+	if err := DB.AutoMigrate(&UserWithIndexComment{}); err != nil {
 		t.Fatalf("Failed to auto migrate, but got error %v", err)
 	}
 }
@@ -335,7 +361,7 @@ func TestMigrateConstraint(t *testing.T) {
 		t.Skip()
 	}
 
-	names := []string{"Account", "fk_users_account", "Pets", "fk_users_pets", "Company", "fk_users_company", "Manager", "fk_users_manager", "Team", "fk_users_team", "Languages", "fk_users_languages"}
+	names := []string{"Account", "fk_users_account", "Pets", "fk_users_pets", "Company", "fk_users_company", "Team", "fk_users_team", "Languages", "fk_users_languages"}
 
 	for _, name := range names {
 		if !DB.Migrator().HasConstraint(&User{}, name) {

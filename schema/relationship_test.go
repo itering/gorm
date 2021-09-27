@@ -398,6 +398,31 @@ func TestMultipleMany2Many(t *testing.T) {
 	)
 }
 
+func TestSelfReferentialMany2Many(t *testing.T) {
+	type User struct {
+		ID         int32 `gorm:"primaryKey"`
+		Name       string
+		CreatedBy  int32
+		Creators   []User      `gorm:"foreignKey:CreatedBy"`
+		AnotherPro interface{} `gorm:"-"`
+	}
+
+	checkStructRelation(t, &User{}, Relation{
+		Name: "Creators", Type: schema.HasMany, Schema: "User", FieldSchema: "User",
+		References: []Reference{{"ID", "User", "CreatedBy", "User", "", true}},
+	})
+
+	user, err := schema.Parse(&User{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatalf("failed to parse schema")
+	}
+
+	relSchema := user.Relationships.Relations["Creators"].FieldSchema
+	if user != relSchema {
+		t.Fatalf("schema should be same, expects %p but got %p", user, relSchema)
+	}
+}
+
 type CreatedByModel struct {
 	CreatedByID uint
 	CreatedBy   *CreatedUser
@@ -432,4 +457,66 @@ func TestEmbeddedRelation(t *testing.T) {
 	} else {
 		t.Fatalf("expects created by relations, but not found")
 	}
+}
+
+func TestSameForeignKey(t *testing.T) {
+	type UserAux struct {
+		gorm.Model
+		Aux  string
+		UUID string
+	}
+
+	type User struct {
+		gorm.Model
+		Name string
+		UUID string
+		Aux  *UserAux `gorm:"foreignkey:UUID;references:UUID"`
+	}
+
+	checkStructRelation(t, &User{},
+		Relation{
+			Name: "Aux", Type: schema.HasOne, Schema: "User", FieldSchema: "UserAux",
+			References: []Reference{
+				{"UUID", "User", "UUID", "UserAux", "", true},
+			},
+		},
+	)
+}
+
+func TestBelongsToWithSameForeignKey(t *testing.T) {
+	type Profile struct {
+		gorm.Model
+		Name         string
+		ProfileRefer int
+	}
+
+	type User struct {
+		gorm.Model
+		Profile      Profile `gorm:"ForeignKey:ProfileRefer"`
+		ProfileRefer int
+	}
+
+	checkStructRelation(t, &User{}, Relation{
+		Name: "Profile", Type: schema.BelongsTo, Schema: "User", FieldSchema: "Profile",
+		References: []Reference{{"ID", "Profile", "ProfileRefer", "User", "", false}},
+	})
+}
+
+func TestHasManySameForeignKey(t *testing.T) {
+	type Profile struct {
+		gorm.Model
+		Name      string
+		UserRefer uint
+	}
+
+	type User struct {
+		gorm.Model
+		UserRefer uint
+		Profile   []Profile `gorm:"ForeignKey:UserRefer"`
+	}
+
+	checkStructRelation(t, &User{}, Relation{
+		Name: "Profile", Type: schema.HasMany, Schema: "User", FieldSchema: "Profile",
+		References: []Reference{{"ID", "User", "UserRefer", "Profile", "", true}},
+	})
 }
