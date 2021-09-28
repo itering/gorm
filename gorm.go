@@ -39,6 +39,8 @@ type Config struct {
 	DisableForeignKeyConstraintWhenMigrating bool
 	// DisableNestedTransaction disable nested transaction
 	DisableNestedTransaction bool
+	// SafetyAutoMigration disable columns alter when it exists
+	SafetyAutoMigration bool
 	// AllowGlobalUpdate allow global update
 	AllowGlobalUpdate bool
 	// QueryFields executes the SQL query with all fields of the table
