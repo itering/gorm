@@ -112,6 +112,8 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 						if err := tx.Migrator().AddColumn(value, field.DBName); err != nil {
 							return err
 						}
+					} else if m.DB.SafetyAutoMigration {
+						// skip MigrationColumn
 					} else if err := m.DB.Migrator().MigrateColumn(value, field, foundColumn); err != nil {
 						// found, smart migrate
 						return err
