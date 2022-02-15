@@ -28,6 +28,7 @@ type Config struct {
 	CreateIndexAfterCreateTable bool
 	DB                          *gorm.DB
 	gorm.Dialector
+	DisableIndex bool // Avoid some datasets that do not support index
 }
 
 type GormDataTypeInterface interface {
@@ -176,7 +177,7 @@ func (m Migrator) CreateTable(values ...interface{}) error {
 
 			for _, dbName := range stmt.Schema.DBNames {
 				field := stmt.Schema.FieldsByDBName[dbName]
-				if !field.IgnoreMigration {
+				if !field.IgnoreMigration && !m.DisableIndex {
 					createTableSQL += "? ?"
 					hasPrimaryKeyInDataType = hasPrimaryKeyInDataType || strings.Contains(strings.ToUpper(string(field.DataType)), "PRIMARY KEY")
 					values = append(values, clause.Column{Name: dbName}, m.DB.Migrator().FullDataTypeOf(field))
@@ -184,7 +185,7 @@ func (m Migrator) CreateTable(values ...interface{}) error {
 				}
 			}
 
-			if !hasPrimaryKeyInDataType && len(stmt.Schema.PrimaryFields) > 0 {
+			if !hasPrimaryKeyInDataType && len(stmt.Schema.PrimaryFields) > 0 && !m.DisableIndex {
 				createTableSQL += "PRIMARY KEY ?,"
 				primaryKeys := []interface{}{}
 				for _, field := range stmt.Schema.PrimaryFields {
@@ -195,6 +196,9 @@ func (m Migrator) CreateTable(values ...interface{}) error {
 			}
 
 			for _, idx := range stmt.Schema.ParseIndexes() {
+				if m.DisableIndex {
+					break
+				}
 				if m.CreateIndexAfterCreateTable {
 					defer func(value interface{}, name string) {
 						if errr == nil {
@@ -615,6 +619,9 @@ type BuildIndexOptionsInterface interface {
 
 func (m Migrator) CreateIndex(value interface{}, name string) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		if m.DisableIndex {
+			return nil
+		}
 		if idx := stmt.Schema.LookIndex(name); idx != nil {
 			opts := m.DB.Migrator().(BuildIndexOptionsInterface).BuildIndexOptions(idx.Fields, stmt)
 			values := []interface{}{clause.Column{Name: idx.Name}, m.CurrentTable(stmt), opts}
@@ -646,6 +653,9 @@ func (m Migrator) CreateIndex(value interface{}, name string) error {
 
 func (m Migrator) DropIndex(value interface{}, name string) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		if m.DisableIndex {
+			return nil
+		}
 		if idx := stmt.Schema.LookIndex(name); idx != nil {
 			name = idx.Name
 		}
@@ -673,6 +683,9 @@ func (m Migrator) HasIndex(value interface{}, name string) bool {
 
 func (m Migrator) RenameIndex(value interface{}, oldName, newName string) error {
 	return m.RunWithValue(value, func(stmt *gorm.Statement) error {
+		if m.DisableIndex {
+			return nil
+		}
 		return m.DB.Exec(
 			"ALTER TABLE ? RENAME INDEX ? TO ?",
 			m.CurrentTable(stmt), clause.Column{Name: oldName}, clause.Column{Name: newName},
