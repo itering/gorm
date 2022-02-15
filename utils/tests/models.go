@@ -60,3 +60,23 @@ type Language struct {
 	Code string `gorm:"primarykey"`
 	Name string
 }
+
+type Coupon struct {
+	ID               int              `gorm:"primarykey; size:255"`
+	AppliesToProduct []*CouponProduct `gorm:"foreignKey:CouponId;constraint:OnDelete:CASCADE"`
+	AmountOff        uint32           `gorm:"amount_off"`
+	PercentOff       float32          `gorm:"percent_off"`
+}
+
+type CouponProduct struct {
+	CouponId  int    `gorm:"primarykey;size:255"`
+	ProductId string `gorm:"primarykey;size:255"`
+	Desc      string
+}
+
+type Order struct {
+	gorm.Model
+	Num      string
+	Coupon   *Coupon
+	CouponID string
+}

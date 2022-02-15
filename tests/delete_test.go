@@ -10,7 +10,7 @@ import (
 )
 
 func TestDelete(t *testing.T) {
-	var users = []User{*GetUser("delete", Config{}), *GetUser("delete", Config{}), *GetUser("delete", Config{})}
+	users := []User{*GetUser("delete", Config{}), *GetUser("delete", Config{}), *GetUser("delete", Config{})}
 
 	if err := DB.Create(&users).Error; err != nil {
 		t.Errorf("errors happened when create: %v", err)
@@ -203,5 +203,56 @@ func TestDeleteSliceWithAssociations(t *testing.T) {
 		if count := DB.Model(&users).Association(key).Count(); count != value {
 			t.Errorf("user's %v expects: %v, got %v", key, value, count)
 		}
+	}
+}
+
+// only sqlite, postgres support returning
+func TestSoftDeleteReturning(t *testing.T) {
+	if DB.Dialector.Name() != "sqlite" && DB.Dialector.Name() != "postgres" {
+		return
+	}
+
+	users := []*User{
+		GetUser("delete-returning-1", Config{}),
+		GetUser("delete-returning-2", Config{}),
+		GetUser("delete-returning-3", Config{}),
+	}
+	DB.Create(&users)
+
+	var results []User
+	DB.Where("name IN ?", []string{users[0].Name, users[1].Name}).Clauses(clause.Returning{}).Delete(&results)
+	if len(results) != 2 {
+		t.Errorf("failed to return delete data, got %v", results)
+	}
+
+	var count int64
+	DB.Model(&User{}).Where("name IN ?", []string{users[0].Name, users[1].Name, users[2].Name}).Count(&count)
+	if count != 1 {
+		t.Errorf("failed to delete data, current count %v", count)
+	}
+}
+
+func TestDeleteReturning(t *testing.T) {
+	if DB.Dialector.Name() != "sqlite" && DB.Dialector.Name() != "postgres" {
+		return
+	}
+
+	companies := []Company{
+		{Name: "delete-returning-1"},
+		{Name: "delete-returning-2"},
+		{Name: "delete-returning-3"},
+	}
+	DB.Create(&companies)
+
+	var results []Company
+	DB.Where("name IN ?", []string{companies[0].Name, companies[1].Name}).Clauses(clause.Returning{}).Delete(&results)
+	if len(results) != 2 {
+		t.Errorf("failed to return delete data, got %v", results)
+	}
+
+	var count int64
+	DB.Model(&Company{}).Where("name IN ?", []string{companies[0].Name, companies[1].Name, companies[2].Name}).Count(&count)
+	if count != 1 {
+		t.Errorf("failed to delete data, current count %v", count)
 	}
 }

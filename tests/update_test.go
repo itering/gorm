@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/utils"
 	. "gorm.io/gorm/utils/tests"
 )
@@ -124,7 +125,7 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestUpdates(t *testing.T) {
-	var users = []*User{
+	users := []*User{
 		GetUser("updates_01", Config{}),
 		GetUser("updates_02", Config{}),
 	}
@@ -177,7 +178,7 @@ func TestUpdates(t *testing.T) {
 }
 
 func TestUpdateColumn(t *testing.T) {
-	var users = []*User{
+	users := []*User{
 		GetUser("update_column_01", Config{}),
 		GetUser("update_column_02", Config{}),
 	}
@@ -621,7 +622,7 @@ func TestSave(t *testing.T) {
 	time.Sleep(time.Second)
 	user1UpdatedAt := result.UpdatedAt
 	user2UpdatedAt := user2.UpdatedAt
-	var users = []*User{&result, &user2}
+	users := []*User{&result, &user2}
 	DB.Save(&users)
 
 	if user1UpdatedAt.Format(time.RFC1123Z) == result.UpdatedAt.Format(time.RFC1123Z) {
@@ -644,7 +645,13 @@ func TestSave(t *testing.T) {
 
 	dryDB := DB.Session(&gorm.Session{DryRun: true})
 	stmt := dryDB.Save(&user).Statement
-	if !regexp.MustCompile("WHERE .id. = [^ ]+$").MatchString(stmt.SQL.String()) {
+	if !regexp.MustCompile(`.id. = .* AND .users.\..deleted_at. IS NULL`).MatchString(stmt.SQL.String()) {
+		t.Fatalf("invalid updating SQL, got %v", stmt.SQL.String())
+	}
+
+	dryDB = DB.Session(&gorm.Session{DryRun: true})
+	stmt = dryDB.Unscoped().Save(&user).Statement
+	if !regexp.MustCompile(`WHERE .id. = [^ ]+$`).MatchString(stmt.SQL.String()) {
 		t.Fatalf("invalid updating SQL, got %v", stmt.SQL.String())
 	}
 
@@ -722,5 +729,37 @@ func TestSaveWithPrimaryValue(t *testing.T) {
 	var result4 Language
 	if err := DB.Table("langs").First(&result4, "code = ?", lang.Code).Error; err != nil || result4.Name != lang.Name {
 		t.Errorf("failed to find created record, got error: %v, result: %+v", err, result4)
+	}
+}
+
+// only sqlite, postgres support returning
+func TestUpdateReturning(t *testing.T) {
+	if DB.Dialector.Name() != "sqlite" && DB.Dialector.Name() != "postgres" {
+		return
+	}
+
+	users := []*User{
+		GetUser("update-returning-1", Config{}),
+		GetUser("update-returning-2", Config{}),
+		GetUser("update-returning-3", Config{}),
+	}
+	DB.Create(&users)
+
+	var results []User
+	DB.Model(&results).Where("name IN ?", []string{users[0].Name, users[1].Name}).Clauses(clause.Returning{}).Update("age", 88)
+	if len(results) != 2 || results[0].Age != 88 || results[1].Age != 88 {
+		t.Errorf("failed to return updated data, got %v", results)
+	}
+
+	if err := DB.Model(&results[0]).Updates(map[string]interface{}{"age": gorm.Expr("age + ?", 100)}).Error; err != nil {
+		t.Errorf("Not error should happen when updating with gorm expr, but got %v", err)
+	}
+
+	if err := DB.Model(&results[1]).Clauses(clause.Returning{Columns: []clause.Column{{Name: "age"}}}).Updates(map[string]interface{}{"age": gorm.Expr("age + ?", 100)}).Error; err != nil {
+		t.Errorf("Not error should happen when updating with gorm expr, but got %v", err)
+	}
+
+	if results[1].Age-results[0].Age != 100 {
+		t.Errorf("failed to return updated age column")
 	}
 }

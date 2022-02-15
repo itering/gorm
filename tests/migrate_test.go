@@ -2,11 +2,13 @@ package tests_test
 
 import (
 	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 	. "gorm.io/gorm/utils/tests"
 )
 
@@ -14,7 +16,6 @@ func TestMigrate(t *testing.T) {
 	allModels := []interface{}{&User{}, &Account{}, &Pet{}, &Company{}, &Toy{}, &Language{}}
 	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(allModels), func(i, j int) { allModels[i], allModels[j] = allModels[j], allModels[i] })
-
 	DB.Migrator().DropTable("user_speaks", "user_friends", "ccc")
 
 	if err := DB.Migrator().DropTable(allModels...); err != nil {
@@ -23,6 +24,23 @@ func TestMigrate(t *testing.T) {
 
 	if err := DB.AutoMigrate(allModels...); err != nil {
 		t.Fatalf("Failed to auto migrate, but got error %v", err)
+	}
+
+	if tables, err := DB.Migrator().GetTables(); err != nil {
+		t.Fatalf("Failed to get database all tables, but got error %v", err)
+	} else {
+		for _, t1 := range []string{"users", "accounts", "pets", "companies", "toys", "languages"} {
+			hasTable := false
+			for _, t2 := range tables {
+				if t2 == t1 {
+					hasTable = true
+					break
+				}
+			}
+			if !hasTable {
+				t.Fatalf("Failed to get table %v when GetTables", t1)
+			}
+		}
 	}
 
 	for _, m := range allModels {
@@ -54,8 +72,27 @@ func TestMigrate(t *testing.T) {
 	}
 }
 
+func TestAutoMigrateSelfReferential(t *testing.T) {
+	type MigratePerson struct {
+		ID        uint
+		Name      string
+		ManagerID *uint
+		Manager   *MigratePerson
+	}
+
+	DB.Migrator().DropTable(&MigratePerson{})
+
+	if err := DB.AutoMigrate(&MigratePerson{}); err != nil {
+		t.Fatalf("Failed to auto migrate, but got error %v", err)
+	}
+
+	if !DB.Migrator().HasConstraint("migrate_people", "fk_migrate_people_manager") {
+		t.Fatalf("Failed to find has one constraint between people and managers")
+	}
+}
+
 func TestSmartMigrateColumn(t *testing.T) {
-	fullSupported := map[string]bool{"mysql": true, "postgres": true}[DB.Dialector.Name()]
+	fullSupported := map[string]bool{"mysql": true}[DB.Dialector.Name()]
 
 	type UserMigrateColumn struct {
 		ID       uint
@@ -139,7 +176,6 @@ func TestSmartMigrateColumn(t *testing.T) {
 			}
 		}
 	}
-
 }
 
 func TestMigrateWithColumnComment(t *testing.T) {
@@ -357,10 +393,6 @@ func TestMigrateColumns(t *testing.T) {
 }
 
 func TestMigrateConstraint(t *testing.T) {
-	if DB.Dialector.Name() == "sqlite" {
-		t.Skip()
-	}
-
 	names := []string{"Account", "fk_users_account", "Pets", "fk_users_pets", "Company", "fk_users_company", "Team", "fk_users_team", "Languages", "fk_users_languages"}
 
 	for _, name := range names {
@@ -382,6 +414,115 @@ func TestMigrateConstraint(t *testing.T) {
 
 		if !DB.Migrator().HasConstraint(&User{}, name) {
 			t.Fatalf("failed to found constraint %v", name)
+		}
+	}
+}
+
+type DynamicUser struct {
+	gorm.Model
+	Name      string
+	CompanyID string `gorm:"index"`
+}
+
+// To test auto migrate crate indexes for dynamic table name
+// https://github.com/go-gorm/gorm/issues/4752
+func TestMigrateIndexesWithDynamicTableName(t *testing.T) {
+	// Create primary table
+	if err := DB.AutoMigrate(&DynamicUser{}); err != nil {
+		t.Fatalf("AutoMigrate create table error: %#v", err)
+	}
+
+	// Create sub tables
+	for _, v := range []string{"01", "02", "03"} {
+		tableName := "dynamic_users_" + v
+		m := DB.Scopes(func(db *gorm.DB) *gorm.DB {
+			return db.Table(tableName)
+		}).Migrator()
+
+		if err := m.AutoMigrate(&DynamicUser{}); err != nil {
+			t.Fatalf("AutoMigrate create table error: %#v", err)
+		}
+
+		if !m.HasTable(tableName) {
+			t.Fatalf("AutoMigrate expected %#v exist, but not.", tableName)
+		}
+
+		if !m.HasIndex(&DynamicUser{}, "CompanyID") {
+			t.Fatalf("Should have index on %s", "CompanyI.")
+		}
+
+		if !m.HasIndex(&DynamicUser{}, "DeletedAt") {
+			t.Fatalf("Should have index on deleted_at.")
+		}
+	}
+}
+
+// check column order after migration, flaky test
+// https://github.com/go-gorm/gorm/issues/4351
+func TestMigrateColumnOrder(t *testing.T) {
+	type UserMigrateColumn struct {
+		ID uint
+	}
+	DB.Migrator().DropTable(&UserMigrateColumn{})
+	DB.AutoMigrate(&UserMigrateColumn{})
+
+	type UserMigrateColumn2 struct {
+		ID  uint
+		F1  string
+		F2  string
+		F3  string
+		F4  string
+		F5  string
+		F6  string
+		F7  string
+		F8  string
+		F9  string
+		F10 string
+		F11 string
+		F12 string
+		F13 string
+		F14 string
+		F15 string
+		F16 string
+		F17 string
+		F18 string
+		F19 string
+		F20 string
+		F21 string
+		F22 string
+		F23 string
+		F24 string
+		F25 string
+		F26 string
+		F27 string
+		F28 string
+		F29 string
+		F30 string
+		F31 string
+		F32 string
+		F33 string
+		F34 string
+		F35 string
+	}
+	if err := DB.Table("user_migrate_columns").AutoMigrate(&UserMigrateColumn2{}); err != nil {
+		t.Fatalf("failed to auto migrate, got error: %v", err)
+	}
+
+	columnTypes, err := DB.Table("user_migrate_columns").Migrator().ColumnTypes(&UserMigrateColumn2{})
+	if err != nil {
+		t.Fatalf("failed to get column types, got error: %v", err)
+	}
+	typ := reflect.Indirect(reflect.ValueOf(&UserMigrateColumn2{})).Type()
+	numField := typ.NumField()
+	if numField != len(columnTypes) {
+		t.Fatalf("column's number not match struct and ddl, %d != %d", numField, len(columnTypes))
+	}
+	namer := schema.NamingStrategy{}
+	for i := 0; i < numField; i++ {
+		expectName := namer.ColumnName("", typ.Field(i).Name)
+		if columnTypes[i].Name() != expectName {
+			t.Fatalf("column order not match struct and ddl, idx %d: %s != %s",
+				i, columnTypes[i].Name(), expectName)
 		}
 	}
 }
