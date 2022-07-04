@@ -292,6 +292,68 @@ func TestFindInBatches(t *testing.T) {
 	}
 }
 
+func TestFindInBatchesWithOffsetLimit(t *testing.T) {
+	users := []User{
+		*GetUser("find_in_batches_with_offset_limit", Config{}),
+		*GetUser("find_in_batches_with_offset_limit", Config{}),
+		*GetUser("find_in_batches_with_offset_limit", Config{}),
+		*GetUser("find_in_batches_with_offset_limit", Config{}),
+		*GetUser("find_in_batches_with_offset_limit", Config{}),
+		*GetUser("find_in_batches_with_offset_limit", Config{}),
+		*GetUser("find_in_batches_with_offset_limit", Config{}),
+		*GetUser("find_in_batches_with_offset_limit", Config{}),
+		*GetUser("find_in_batches_with_offset_limit", Config{}),
+		*GetUser("find_in_batches_with_offset_limit", Config{}),
+	}
+
+	DB.Create(&users)
+
+	var (
+		sub, results []User
+		lastBatch    int
+	)
+
+	// offset limit
+	if result := DB.Offset(3).Limit(5).Where("name = ?", users[0].Name).FindInBatches(&sub, 2, func(tx *gorm.DB, batch int) error {
+		results = append(results, sub...)
+		lastBatch = batch
+		return nil
+	}); result.Error != nil || result.RowsAffected != 5 {
+		t.Errorf("Failed to batch find, got error %v, rows affected: %v", result.Error, result.RowsAffected)
+	}
+	if lastBatch != 3 {
+		t.Fatalf("incorrect last batch, expected: %v, got: %v", 3, lastBatch)
+	}
+
+	targetUsers := users[3:8]
+	for i := 0; i < len(targetUsers); i++ {
+		AssertEqual(t, results[i], targetUsers[i])
+	}
+
+	var sub1 []User
+	// limit < batchSize
+	if result := DB.Limit(5).Where("name = ?", users[0].Name).FindInBatches(&sub1, 10, func(tx *gorm.DB, batch int) error {
+		return nil
+	}); result.Error != nil || result.RowsAffected != 5 {
+		t.Errorf("Failed to batch find, got error %v, rows affected: %v", result.Error, result.RowsAffected)
+	}
+
+	var sub2 []User
+	// only offset
+	if result := DB.Offset(3).Where("name = ?", users[0].Name).FindInBatches(&sub2, 2, func(tx *gorm.DB, batch int) error {
+		return nil
+	}); result.Error != nil || result.RowsAffected != 7 {
+		t.Errorf("Failed to batch find, got error %v, rows affected: %v", result.Error, result.RowsAffected)
+	}
+
+	var sub3 []User
+	if result := DB.Limit(4).Where("name = ?", users[0].Name).FindInBatches(&sub3, 2, func(tx *gorm.DB, batch int) error {
+		return nil
+	}); result.Error != nil || result.RowsAffected != 4 {
+		t.Errorf("Failed to batch find, got error %v, rows affected: %v", result.Error, result.RowsAffected)
+	}
+}
+
 func TestFindInBatchesWithError(t *testing.T) {
 	if name := DB.Dialector.Name(); name == "sqlserver" {
 		t.Skip("skip sqlserver due to it will raise data race for invalid sql")
@@ -583,7 +645,9 @@ func TestPluck(t *testing.T) {
 	if err := DB.Model(User{}).Where("name like ?", "pluck-user%").Order("name desc").Pluck("name", &names2).Error; err != nil {
 		t.Errorf("got error when pluck name: %v", err)
 	}
-	AssertEqual(t, names, sort.Reverse(sort.StringSlice(names2)))
+
+	sort.Slice(names2, func(i, j int) bool { return names2[i] < names2[j] })
+	AssertEqual(t, names, names2)
 
 	var ids []int
 	if err := DB.Model(User{}).Where("name like ?", "pluck-user%").Pluck("id", &ids).Error; err != nil {
@@ -1157,4 +1221,117 @@ func TestQueryWithTableAndConditionsAndAllFields(t *testing.T) {
 	if !regexp.MustCompile(userQuery + `WHERE .user.\..name. = .+ AND .user.\..deleted_at. IS NULL`).MatchString(result.Statement.SQL.String()) {
 		t.Errorf("invalid query SQL, got %v", result.Statement.SQL.String())
 	}
+}
+
+type DoubleInt64 struct {
+	data int64
+}
+
+func (t *DoubleInt64) Scan(val interface{}) error {
+	switch v := val.(type) {
+	case int64:
+		t.data = v * 2
+		return nil
+	default:
+		return fmt.Errorf("DoubleInt64 cant not scan with:%v", v)
+	}
+}
+
+// https://github.com/go-gorm/gorm/issues/5091
+func TestQueryScannerWithSingleColumn(t *testing.T) {
+	user := User{Name: "scanner_raw_1", Age: 10}
+	DB.Create(&user)
+
+	var result1 DoubleInt64
+	if err := DB.Model(&User{}).Where("name LIKE ?", "scanner_raw_%").Limit(1).Pluck(
+		"age", &result1).Error; err != nil {
+		t.Errorf("Failed, got error: %v", err)
+	}
+
+	AssertEqual(t, result1.data, 20)
+
+	var result2 DoubleInt64
+	if err := DB.Model(&User{}).Where("name LIKE ?", "scanner_raw_%").Limit(1).Select(
+		"age").Scan(&result2).Error; err != nil {
+		t.Errorf("Failed, got error: %v", err)
+	}
+
+	AssertEqual(t, result2.data, 20)
+}
+
+func TestQueryResetNullValue(t *testing.T) {
+	type QueryResetItem struct {
+		ID   string `gorm:"type:varchar(5)"`
+		Name string
+	}
+
+	type QueryResetNullValue struct {
+		ID      int
+		Name    string     `gorm:"default:NULL"`
+		Flag    bool       `gorm:"default:NULL"`
+		Number1 int64      `gorm:"default:NULL"`
+		Number2 uint64     `gorm:"default:NULL"`
+		Number3 float64    `gorm:"default:NULL"`
+		Now     *time.Time `gorm:"defalut:NULL"`
+		Item1Id string
+		Item1   *QueryResetItem `gorm:"references:ID"`
+		Item2Id string
+		Item2   *QueryResetItem `gorm:"references:ID"`
+	}
+
+	DB.Migrator().DropTable(&QueryResetNullValue{}, &QueryResetItem{})
+	DB.AutoMigrate(&QueryResetNullValue{}, &QueryResetItem{})
+
+	now := time.Now()
+	q1 := QueryResetNullValue{
+		Name:    "name",
+		Flag:    true,
+		Number1: 100,
+		Number2: 200,
+		Number3: 300.1,
+		Now:     &now,
+		Item1: &QueryResetItem{
+			ID:   "u_1_1",
+			Name: "item_1_1",
+		},
+		Item2: &QueryResetItem{
+			ID:   "u_1_2",
+			Name: "item_1_2",
+		},
+	}
+
+	q2 := QueryResetNullValue{
+		Item1: &QueryResetItem{
+			ID:   "u_2_1",
+			Name: "item_2_1",
+		},
+		Item2: &QueryResetItem{
+			ID:   "u_2_2",
+			Name: "item_2_2",
+		},
+	}
+
+	var err error
+	err = DB.Create(&q1).Error
+	if err != nil {
+		t.Errorf("failed to create:%v", err)
+	}
+
+	err = DB.Create(&q2).Error
+	if err != nil {
+		t.Errorf("failed to create:%v", err)
+	}
+
+	var qs []QueryResetNullValue
+	err = DB.Joins("Item1").Joins("Item2").Find(&qs).Error
+	if err != nil {
+		t.Errorf("failed to find:%v", err)
+	}
+
+	if len(qs) != 2 {
+		t.Fatalf("find count not equal:%d", len(qs))
+	}
+
+	AssertEqual(t, q1, qs[0])
+	AssertEqual(t, q2, qs[1])
 }

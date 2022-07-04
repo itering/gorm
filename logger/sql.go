@@ -19,9 +19,9 @@ const (
 	nullStr     = "NULL"
 )
 
-func isPrintable(s []byte) bool {
+func isPrintable(s string) bool {
 	for _, r := range s {
-		if !unicode.IsPrint(rune(r)) {
+		if !unicode.IsPrint(r) {
 			return false
 		}
 	}
@@ -75,17 +75,17 @@ func ExplainSQL(sql string, numericPlaceholder *regexp.Regexp, escaper string, a
 			case reflect.Bool:
 				vars[idx] = fmt.Sprintf("%t", reflectValue.Interface())
 			case reflect.String:
-				vars[idx] = escaper + strings.Replace(fmt.Sprintf("%v", v), escaper, "\\"+escaper, -1) + escaper
+				vars[idx] = escaper + strings.ReplaceAll(fmt.Sprintf("%v", v), escaper, "\\"+escaper) + escaper
 			default:
 				if v != nil && reflectValue.IsValid() && ((reflectValue.Kind() == reflect.Ptr && !reflectValue.IsNil()) || reflectValue.Kind() != reflect.Ptr) {
-					vars[idx] = escaper + strings.Replace(fmt.Sprintf("%v", v), escaper, "\\"+escaper, -1) + escaper
+					vars[idx] = escaper + strings.ReplaceAll(fmt.Sprintf("%v", v), escaper, "\\"+escaper) + escaper
 				} else {
 					vars[idx] = nullStr
 				}
 			}
 		case []byte:
-			if isPrintable(v) {
-				vars[idx] = escaper + strings.Replace(string(v), escaper, "\\"+escaper, -1) + escaper
+			if s := string(v); isPrintable(s) {
+				vars[idx] = escaper + strings.ReplaceAll(s, escaper, "\\"+escaper) + escaper
 			} else {
 				vars[idx] = escaper + "<binary>" + escaper
 			}
@@ -94,7 +94,7 @@ func ExplainSQL(sql string, numericPlaceholder *regexp.Regexp, escaper string, a
 		case float64, float32:
 			vars[idx] = fmt.Sprintf("%.6f", v)
 		case string:
-			vars[idx] = escaper + strings.Replace(v, escaper, "\\"+escaper, -1) + escaper
+			vars[idx] = escaper + strings.ReplaceAll(v, escaper, "\\"+escaper) + escaper
 		default:
 			rv := reflect.ValueOf(v)
 			if v == nil || !rv.IsValid() || rv.Kind() == reflect.Ptr && rv.IsNil() {
@@ -111,7 +111,7 @@ func ExplainSQL(sql string, numericPlaceholder *regexp.Regexp, escaper string, a
 						return
 					}
 				}
-				vars[idx] = escaper + strings.Replace(fmt.Sprint(v), escaper, "\\"+escaper, -1) + escaper
+				vars[idx] = escaper + strings.ReplaceAll(fmt.Sprint(v), escaper, "\\"+escaper) + escaper
 			}
 		}
 	}

@@ -10,12 +10,12 @@ import (
 )
 
 func TestJoins(t *testing.T) {
-	user := *GetUser("joins-1", Config{Company: true, Manager: true, Account: true})
+	user := *GetUser("joins-1", Config{Company: true, Manager: true, Account: true, NamedPet: false})
 
 	DB.Create(&user)
 
 	var user2 User
-	if err := DB.Joins("Company").Joins("Manager").Joins("Account").First(&user2, "users.name = ?", user.Name).Error; err != nil {
+	if err := DB.Joins("NamedPet").Joins("Company").Joins("Manager").Joins("Account").First(&user2, "users.name = ?", user.Name).Error; err != nil {
 		t.Fatalf("Failed to load with joins, got error: %v", err)
 	}
 
@@ -198,5 +198,34 @@ func TestJoinCount(t *testing.T) {
 
 	if result.ID != user.ID {
 		t.Fatalf("result's id, %d, doesn't match user's id, %d", result.ID, user.ID)
+	}
+}
+
+func TestJoinWithSoftDeleted(t *testing.T) {
+	user := GetUser("TestJoinWithSoftDeletedUser", Config{Account: true, NamedPet: true})
+	DB.Create(&user)
+
+	var user1 User
+	DB.Model(&User{}).Joins("NamedPet").Joins("Account").First(&user1, user.ID)
+	if user1.NamedPet == nil || user1.Account.ID == 0 {
+		t.Fatalf("joins NamedPet and Account should not empty:%v", user1)
+	}
+
+	// Account should empty
+	DB.Delete(&user1.Account)
+
+	var user2 User
+	DB.Model(&User{}).Joins("NamedPet").Joins("Account").First(&user2, user.ID)
+	if user2.NamedPet == nil || user2.Account.ID != 0 {
+		t.Fatalf("joins Account should not empty:%v", user2)
+	}
+
+	// NamedPet should empty
+	DB.Delete(&user1.NamedPet)
+
+	var user3 User
+	DB.Model(&User{}).Joins("NamedPet").Joins("Account").First(&user3, user.ID)
+	if user3.NamedPet != nil || user2.Account.ID != 0 {
+		t.Fatalf("joins NamedPet and Account should not empty:%v", user2)
 	}
 }
