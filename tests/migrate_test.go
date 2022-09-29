@@ -923,3 +923,77 @@ func TestDifferentTypeWithoutDeclaredLength(t *testing.T) {
 
 	AssertEqual(t, "text", strings.ToLower(ct.DatabaseTypeName()))
 }
+
+func TestMigrateArrayTypeModel(t *testing.T) {
+	if DB.Dialector.Name() != "postgres" {
+		return
+	}
+
+	type ArrayTypeModel struct {
+		ID              uint
+		Number          string     `gorm:"type:varchar(51);NOT NULL"`
+		TextArray       []string   `gorm:"type:text[];NOT NULL"`
+		NestedTextArray [][]string `gorm:"type:text[][]"`
+		NestedIntArray  [][]int64  `gorm:"type:integer[3][3]"`
+	}
+
+	var err error
+	DB.Migrator().DropTable(&ArrayTypeModel{})
+
+	err = DB.AutoMigrate(&ArrayTypeModel{})
+	AssertEqual(t, nil, err)
+
+	ct, err := findColumnType(&ArrayTypeModel{}, "number")
+	AssertEqual(t, nil, err)
+	AssertEqual(t, "varchar", ct.DatabaseTypeName())
+
+	ct, err = findColumnType(&ArrayTypeModel{}, "text_array")
+	AssertEqual(t, nil, err)
+	AssertEqual(t, "text[]", ct.DatabaseTypeName())
+
+	ct, err = findColumnType(&ArrayTypeModel{}, "nested_text_array")
+	AssertEqual(t, nil, err)
+	AssertEqual(t, "text[]", ct.DatabaseTypeName())
+
+	ct, err = findColumnType(&ArrayTypeModel{}, "nested_int_array")
+	AssertEqual(t, nil, err)
+	AssertEqual(t, "integer[]", ct.DatabaseTypeName())
+}
+
+func TestMigrateSameEmbeddedFieldName(t *testing.T) {
+	type UserStat struct {
+		GroundDestroyCount int
+	}
+
+	type GameUser struct {
+		gorm.Model
+		StatAb UserStat `gorm:"embedded;embeddedPrefix:stat_ab_"`
+	}
+
+	type UserStat1 struct {
+		GroundDestroyCount string
+	}
+
+	type GroundRate struct {
+		GroundDestroyCount int
+	}
+
+	type GameUser1 struct {
+		gorm.Model
+		StatAb       UserStat1  `gorm:"embedded;embeddedPrefix:stat_ab_"`
+		GroundRateRb GroundRate `gorm:"embedded;embeddedPrefix:rate_ground_rb_"`
+	}
+
+	DB.Migrator().DropTable(&GameUser{})
+	err := DB.AutoMigrate(&GameUser{})
+	AssertEqual(t, nil, err)
+
+	err = DB.Table("game_users").AutoMigrate(&GameUser1{})
+	AssertEqual(t, nil, err)
+
+	_, err = findColumnType(&GameUser{}, "stat_ab_ground_destory_count")
+	AssertEqual(t, nil, err)
+
+	_, err = findColumnType(&GameUser{}, "rate_ground_rb_ground_destory_count")
+	AssertEqual(t, nil, err)
+}

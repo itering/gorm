@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	regFullDataType = regexp.MustCompile(`[^\d]*(\d+)[^\d]?`)
+	regFullDataType = regexp.MustCompile(`\D*(\d+)\D?`)
 )
 
 // Migrator m struct
@@ -137,12 +137,12 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 							}
 						}
 					}
+				}
 
-					for _, chk := range stmt.Schema.ParseCheckConstraints() {
-						if !tx.Migrator().HasConstraint(value, chk.Name) {
-							if err := tx.Migrator().CreateConstraint(value, chk.Name); err != nil {
-								return err
-							}
+				for _, chk := range stmt.Schema.ParseCheckConstraints() {
+					if !tx.Migrator().HasConstraint(value, chk.Name) {
+						if err := tx.Migrator().CreateConstraint(value, chk.Name); err != nil {
+							return err
 						}
 					}
 				}
@@ -410,9 +410,27 @@ func (m Migrator) MigrateColumn(value interface{}, field *schema.Field, columnTy
 
 	alterColumn := false
 
-	// check type
-	if !field.PrimaryKey && !strings.HasPrefix(fullDataType, realDataType) {
-		alterColumn = true
+	if !field.PrimaryKey {
+		// check type
+		var isSameType bool
+		if strings.HasPrefix(fullDataType, realDataType) {
+			isSameType = true
+		}
+
+		// check type aliases
+		if !isSameType {
+			aliases := m.DB.Migrator().GetTypeAliases(realDataType)
+			for _, alias := range aliases {
+				if strings.HasPrefix(fullDataType, alias) {
+					isSameType = true
+					break
+				}
+			}
+		}
+
+		if !isSameType {
+			alterColumn = true
+		}
 	}
 
 	// check size
@@ -480,7 +498,7 @@ func (m Migrator) MigrateColumn(value interface{}, field *schema.Field, columnTy
 	}
 
 	if alterColumn && !field.IgnoreMigration {
-		return m.DB.Migrator().AlterColumn(value, field.Name)
+		return m.DB.Migrator().AlterColumn(value, field.DBName)
 	}
 
 	return nil
@@ -864,4 +882,9 @@ func (m Migrator) CurrentTable(stmt *gorm.Statement) interface{} {
 // GetIndexes return Indexes []gorm.Index and execErr error
 func (m Migrator) GetIndexes(dst interface{}) ([]gorm.Index, error) {
 	return nil, errors.New("not support")
+}
+
+// GetTypeAliases return database type aliases
+func (m Migrator) GetTypeAliases(databaseTypeName string) []string {
+	return nil
 }
