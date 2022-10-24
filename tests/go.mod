@@ -11,10 +11,10 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.15 // indirect
 	golang.org/x/crypto v0.0.0-20220919173607-35f4265a4bc0 // indirect
 	gorm.io/driver/mysql v1.3.6
-	gorm.io/driver/postgres v1.3.10
+	gorm.io/driver/postgres v1.4.5
 	gorm.io/driver/sqlite v1.3.6
 	gorm.io/driver/sqlserver v1.3.2
-	gorm.io/gorm v1.23.9
+	gorm.io/gorm v1.24.1-0.20221019064659-5dd2bb482755
 )
 
 replace gorm.io/gorm => ../
