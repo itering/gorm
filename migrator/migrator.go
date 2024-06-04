@@ -155,6 +155,8 @@ func (m Migrator) AutoMigrate(values ...interface{}) error {
 						if err = execTx.Migrator().AddColumn(value, dbName); err != nil {
 							return err
 						}
+					} else if m.DB.SafetyAutoMigration {
+						// skip MigrationColumn
 					} else {
 						// found, smartly migrate
 						field := stmt.Schema.FieldsByDBName[dbName]
