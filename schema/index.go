@@ -114,7 +114,10 @@ func parseFieldIndexes(field *Field) (indexes []Index, err error) {
 				if idx != -1 {
 					name = tag[0:idx]
 				}
-
+				if name != "" {
+					// override the default index name
+					name = field.Schema.namer.IndexName(field.Schema.Table, name)
+				}
 				if name == "" {
 					subName := field.Name
 					const key = "COMPOSITE"
